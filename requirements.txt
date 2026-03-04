@@ -1,0 +1,7 @@
+pillow
+pyautogui
+numpy
+opencv-python
+keyboard
+pystray
+python-dotenv
