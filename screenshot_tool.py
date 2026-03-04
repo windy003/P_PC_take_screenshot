@@ -118,10 +118,12 @@ class LongScreenshot:
     # ─────────────────────────── 区域选择覆盖层 ──────────────────────
     def _show_selection(self, on_region):
         """通用框选覆盖层，选完后调用 on_region(x, y, w, h)"""
+        _TRANS = "#fe01fe"   # 透明穿透色
         overlay = tk.Toplevel(self.root)
         overlay.attributes("-fullscreen", True)
-        overlay.attributes("-alpha", 0.25)
+        overlay.attributes("-alpha", 0.45)
         overlay.attributes("-topmost", True)
+        overlay.attributes("-transparentcolor", _TRANS)
         overlay.configure(bg="black")
 
         tk.Label(
@@ -164,7 +166,7 @@ class LongScreenshot:
                 canvas.delete(rect[0])
             rect[0] = canvas.create_rectangle(
                 sx, sy, e.x, e.y,
-                outline="#00e676", width=2, fill="white", stipple="gray12",
+                outline="#00e676", width=2, fill=_TRANS,
             )
 
         def release(e):
