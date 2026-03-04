@@ -1,1 +1,1 @@
-start  /b   pythonw  ./screenshot_tool.py
+start /b pythonw ./screenshot_tool.py
