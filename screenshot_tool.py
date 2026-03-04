@@ -269,10 +269,12 @@ class LongScreenshot:
             pg = cv2.cvtColor(arrays[i - 1], cv2.COLOR_RGB2GRAY)
             cg = cv2.cvtColor(arrays[i],     cv2.COLOR_RGB2GRAY)
             h = pg.shape[0]
-            tpl_h = max(h // 3, 60)
+            # 用更大的模板（1/2 高度），提供更多上下文，减少误匹配
+            tpl_h = max(h // 2, 100)
             template = pg[h - tpl_h:, :]
-            search_h = min(int(h * 0.85), cg.shape[0])
-            search   = cg[:search_h, :]
+            # 搜索整张当前图（减去模板高度，满足 matchTemplate 要求）
+            search_h = min(cg.shape[0], cg.shape[0])
+            search   = cg
 
             if template.shape[1] != search.shape[1] or template.shape[0] >= search.shape[0]:
                 result = np.vstack([result, arrays[i]])
@@ -281,7 +283,7 @@ class LongScreenshot:
             res = cv2.matchTemplate(search, template, cv2.TM_CCOEFF_NORMED)
             _, val, _, loc = cv2.minMaxLoc(res)
 
-            if val > 0.4:
+            if val > 0.7:   # 提高阈值，避免在相似内容中误匹配
                 new_start = loc[1] + tpl_h
                 if 0 < new_start < arrays[i].shape[0]:
                     result = np.vstack([result, arrays[i][new_start:]])
