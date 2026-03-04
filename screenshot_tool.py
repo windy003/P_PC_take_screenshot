@@ -94,7 +94,7 @@ class LongScreenshot:
         self.is_capturing = False
         self.stop_flag = threading.Event()
         self.screenshots: list[Image.Image] = []
-        self._indicator: tk.Toplevel | None = None
+        self._dim_overlay: list[tk.Toplevel] | None = None
 
         # 全局快捷键
         keyboard.add_hotkey("ctrl+alt+print screen", self._on_long_hotkey,     suppress=True)
@@ -130,17 +130,36 @@ class LongScreenshot:
             bg="#111", fg="white", font=("微软雅黑", 13), pady=6,
         ).place(relx=0.5, rely=0.01, anchor="n")
 
-        canvas = tk.Canvas(overlay, cursor="cross", highlightthickness=0, bg="black")
+        canvas = tk.Canvas(overlay, cursor="none", highlightthickness=0, bg="black")
         canvas.pack(fill="both", expand=True)
 
         sx = sy = 0
-        rect = [None]
+        rect   = [None]
+        h_line = [None]
+        v_line = [None]
+
+        def _crosshair(ex, ey):
+            sw = canvas.winfo_width()
+            sh = canvas.winfo_height()
+            if h_line[0]:
+                canvas.delete(h_line[0])
+            if v_line[0]:
+                canvas.delete(v_line[0])
+            h_line[0] = canvas.create_line(0, ey, sw, ey, fill="white", width=1)
+            v_line[0] = canvas.create_line(ex, 0, ex, sh, fill="white", width=1)
+            # 保证选框始终在十字线上方
+            if rect[0]:
+                canvas.tag_raise(rect[0])
+
+        def motion(e):
+            _crosshair(e.x, e.y)
 
         def press(e):
             nonlocal sx, sy
             sx, sy = e.x, e.y
 
         def drag(e):
+            _crosshair(e.x, e.y)
             if rect[0]:
                 canvas.delete(rect[0])
             rect[0] = canvas.create_rectangle(
@@ -156,6 +175,7 @@ class LongScreenshot:
                 region = (x1, y1, x2 - x1, y2 - y1)
                 threading.Thread(target=on_region, args=(region,), daemon=True).start()
 
+        canvas.bind("<Motion>",          motion)
         canvas.bind("<ButtonPress-1>",   press)
         canvas.bind("<B1-Motion>",       drag)
         canvas.bind("<ButtonRelease-1>", release)
@@ -187,7 +207,7 @@ class LongScreenshot:
         x, y, w, h = region
         cx, cy = x + w // 2, y + h // 2
 
-        self.root.after(0, self._show_indicator)
+        self.root.after(0, lambda: self._show_dim_overlay(region))
 
         # 等覆盖层完全消失，再点击目标窗口获取焦点
         time.sleep(0.5)
@@ -218,29 +238,59 @@ class LongScreenshot:
                 dup_count = 0
                 self.screenshots.append(shot)
 
-        self.root.after(0, self._hide_indicator)
+        self.root.after(0, self._hide_dim_overlay)
         self.is_capturing = False
 
         if self.screenshots:
             self.root.after(0, self._on_capture_done)
 
-    # ─────────────────────────── 悬浮指示器 ──────────────────────────
-    def _show_indicator(self):
-        win = tk.Toplevel(self.root)
-        win.overrideredirect(True)
-        win.attributes("-topmost", True)
-        win.attributes("-alpha", 0.90)
-        win.geometry("+8+8")
-        tk.Label(
-            win, text="  ⏺ 截图中…  按 ESC 结束  ",
-            bg="#b71c1c", fg="white", font=("微软雅黑", 11, "bold"), pady=5,
-        ).pack()
-        self._indicator = win
+    # ─────────────────────────── 截取区域边框 ────────────────────────
+    def _show_dim_overlay(self, region: tuple[int, int, int, int]):
+        """用 4 条绿色细窗口围出截取区域边框，不影响截图内容"""
+        x, y, w, h = region
+        b = 3   # 边框粗细（像素）
 
-    def _hide_indicator(self):
-        if self._indicator:
-            self._indicator.destroy()
-            self._indicator = None
+        # 四条边的位置：(left, top, width, height)
+        strips = [
+            (x - b,     y - b,     w + b * 2, b    ),  # 上
+            (x - b,     y + h,     w + b * 2, b    ),  # 下
+            (x - b,     y - b,     b,          h + b * 2),  # 左
+            (x + w,     y - b,     b,          h + b * 2),  # 右
+        ]
+
+        wins = []
+        for sx, sy, sw_, sh_ in strips:
+            win = tk.Toplevel(self.root)
+            win.overrideredirect(True)
+            win.attributes("-topmost", True)
+            win.geometry(f"{sw_}x{sh_}+{sx}+{sy}")
+            win.configure(bg="#00e676")
+            win.update_idletasks()
+
+            hwnd = ctypes.windll.user32.GetAncestor(win.winfo_id(), 2)  # GA_ROOT
+            if hwnd == 0:
+                hwnd = win.winfo_id()
+
+            # 点击穿透
+            GWL_EXSTYLE       = -20
+            WS_EX_LAYERED     = 0x00080000
+            WS_EX_TRANSPARENT = 0x00000020
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            ctypes.windll.user32.SetWindowLongW(
+                hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+            )
+            # 排除在截图之外（Win10 2004+ / Win11）
+            ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, 0x00000011)
+
+            wins.append(win)
+
+        self._dim_overlay = wins
+
+    def _hide_dim_overlay(self):
+        if self._dim_overlay:
+            for win in self._dim_overlay:
+                win.destroy()
+            self._dim_overlay = None
 
     # ─────────────────────────── 相似度检测 ──────────────────────────
     @staticmethod
