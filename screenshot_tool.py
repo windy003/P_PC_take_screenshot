@@ -126,11 +126,6 @@ class LongScreenshot:
         overlay.attributes("-transparentcolor", _TRANS)
         overlay.configure(bg="black")
 
-        tk.Label(
-            overlay,
-            text="  拖动鼠标框选截屏区域    ESC 取消  ",
-            bg="#111", fg="white", font=("微软雅黑", 13), pady=6,
-        ).place(relx=0.5, rely=0.01, anchor="n")
 
         canvas = tk.Canvas(overlay, cursor="none", highlightthickness=0, bg="black")
         canvas.pack(fill="both", expand=True)
@@ -147,8 +142,8 @@ class LongScreenshot:
                 canvas.delete(h_line[0])
             if v_line[0]:
                 canvas.delete(v_line[0])
-            h_line[0] = canvas.create_line(0, ey, sw, ey, fill="white", width=1)
-            v_line[0] = canvas.create_line(ex, 0, ex, sh, fill="white", width=1)
+            h_line[0] = canvas.create_line(0, ey, sw, ey, fill="red", width=1)
+            v_line[0] = canvas.create_line(ex, 0, ex, sh, fill="red", width=1)
             # 保证选框始终在十字线上方
             if rect[0]:
                 canvas.tag_raise(rect[0])
@@ -166,7 +161,7 @@ class LongScreenshot:
                 canvas.delete(rect[0])
             rect[0] = canvas.create_rectangle(
                 sx, sy, e.x, e.y,
-                outline="#00e676", width=2, fill=_TRANS,
+                outline="red", width=2, fill=_TRANS,
             )
 
         def release(e):
@@ -266,7 +261,7 @@ class LongScreenshot:
             win.overrideredirect(True)
             win.attributes("-topmost", True)
             win.geometry(f"{sw_}x{sh_}+{sx}+{sy}")
-            win.configure(bg="#00e676")
+            win.configure(bg="red")
             win.update_idletasks()
 
             hwnd = ctypes.windll.user32.GetAncestor(win.winfo_id(), 2)  # GA_ROOT
