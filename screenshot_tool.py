@@ -319,9 +319,7 @@ class LongScreenshot:
             # 用更大的模板（1/2 高度），提供更多上下文，减少误匹配
             tpl_h = max(h // 2, 100)
             template = pg[h - tpl_h:, :]
-            # 搜索整张当前图（减去模板高度，满足 matchTemplate 要求）
-            search_h = min(cg.shape[0], cg.shape[0])
-            search   = cg
+            search = cg
 
             if template.shape[1] != search.shape[1] or template.shape[0] >= search.shape[0]:
                 result = np.vstack([result, arrays[i]])
