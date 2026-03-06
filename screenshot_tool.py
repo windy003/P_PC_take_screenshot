@@ -131,9 +131,11 @@ class LongScreenshot:
         canvas.pack(fill="both", expand=True)
 
         sx = sy = 0
-        rect   = [None]
-        h_line = [None]
-        v_line = [None]
+        rect      = [None]
+        h_line    = [None]
+        v_line    = [None]
+        started   = [False]  # 是否已点下第一个点
+        confirmed = [False]  # 防止重复确认
 
         def _crosshair(ex, ey):
             sw = canvas.winfo_width()
@@ -144,18 +146,43 @@ class LongScreenshot:
                 canvas.delete(v_line[0])
             h_line[0] = canvas.create_line(0, ey, sw, ey, fill="red", width=1)
             v_line[0] = canvas.create_line(ex, 0, ex, sh, fill="red", width=1)
-            # 保证选框始终在十字线上方
             if rect[0]:
                 canvas.tag_raise(rect[0])
 
+        def _confirm(ex, ey):
+            if confirmed[0]:
+                return
+            x1, y1 = min(sx, ex), min(sy, ey)
+            x2, y2 = max(sx, ex), max(sy, ey)
+            if x2 - x1 > 20 and y2 - y1 > 20:
+                confirmed[0] = True
+                overlay.destroy()
+                region = (x1, y1, x2 - x1, y2 - y1)
+                threading.Thread(target=on_region, args=(region,), daemon=True).start()
+
         def motion(e):
             _crosshair(e.x, e.y)
+            if started[0]:
+                if rect[0]:
+                    canvas.delete(rect[0])
+                rect[0] = canvas.create_rectangle(
+                    sx, sy, e.x, e.y,
+                    outline="red", width=2, fill=_TRANS,
+                )
 
-        def press(e):
+        def click(e):
             nonlocal sx, sy
-            sx, sy = e.x, e.y
+            if not started[0]:
+                # 第一次点击：记录起点
+                sx, sy = e.x, e.y
+                started[0] = True
+            else:
+                # 第二次点击：确认选区（触摸板模式）
+                _confirm(e.x, e.y)
 
         def drag(e):
+            if not started[0]:
+                return
             _crosshair(e.x, e.y)
             if rect[0]:
                 canvas.delete(rect[0])
@@ -165,17 +192,17 @@ class LongScreenshot:
             )
 
         def release(e):
-            x1, y1 = min(sx, e.x), min(sy, e.y)
-            x2, y2 = max(sx, e.x), max(sy, e.y)
-            overlay.destroy()
-            if x2 - x1 > 20 and y2 - y1 > 20:
-                region = (x1, y1, x2 - x1, y2 - y1)
-                threading.Thread(target=on_region, args=(region,), daemon=True).start()
+            # 只有实际拖动了足够距离才确认（避免第一次点击的 release 误触发）
+            if started[0] and (abs(e.x - sx) > 20 or abs(e.y - sy) > 20):
+                _confirm(e.x, e.y)
 
         canvas.bind("<Motion>",          motion)
-        canvas.bind("<ButtonPress-1>",   press)
+        canvas.bind("<ButtonPress-1>",   click)
         canvas.bind("<B1-Motion>",       drag)
         canvas.bind("<ButtonRelease-1>", release)
+        # 屏蔽右键，防止触摸板误触弹出菜单
+        canvas.bind("<Button-3>",        lambda e: "break")
+        overlay.bind("<Button-3>",       lambda e: "break")
         overlay.bind("<Escape>", lambda _: overlay.destroy())
         overlay.focus_force()
 
@@ -206,10 +233,9 @@ class LongScreenshot:
 
         self.root.after(0, lambda: self._show_dim_overlay(region))
 
-        # 等覆盖层完全消失，再点击目标窗口获取焦点
+        # 等覆盖层完全消失
         time.sleep(0.5)
-        _click(cx, cy)
-        time.sleep(0.3)
+        _move(cx, cy)   # 只移光标，不点击，避免触摸板环境产生右键
 
         # 首张截图
         self.screenshots.append(pyautogui.screenshot(region=(x, y, w, h)))
