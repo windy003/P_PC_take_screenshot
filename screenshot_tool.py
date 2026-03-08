@@ -222,6 +222,19 @@ class LongScreenshot:
     def _start_long(self, region: tuple[int, int, int, int]):
         self._run_capture(region)
 
+    # ─────────────────────────── 可中断睡眠 ──────────────────────────
+    def _sleep_interruptible(self, seconds: float, interval: float = 0.05) -> bool:
+        """分段睡眠，每隔 interval 秒检查一次 ESC / stop_flag。
+        返回 True 表示被中断，False 表示正常睡完。"""
+        elapsed = 0.0
+        while elapsed < seconds:
+            if self.stop_flag.is_set() or keyboard.is_pressed("esc"):
+                return True
+            chunk = min(interval, seconds - elapsed)
+            time.sleep(chunk)
+            elapsed += chunk
+        return False
+
     # ─────────────────────────── 截图主循环 ──────────────────────────
     def _run_capture(self, region: tuple[int, int, int, int]):
         self.is_capturing = True
@@ -233,8 +246,12 @@ class LongScreenshot:
 
         self.root.after(0, lambda: self._show_dim_overlay(region))
 
-        # 等覆盖层完全消失
-        time.sleep(0.5)
+        # 等覆盖层完全消失（可中断）
+        if self._sleep_interruptible(0.5):
+            self.root.after(0, self._hide_dim_overlay)
+            self.is_capturing = False
+            return
+
         _move(cx, cy)   # 只移光标，不点击，避免触摸板环境产生右键
 
         # 首张截图
@@ -248,9 +265,18 @@ class LongScreenshot:
 
             # ★ 用 ctypes 直接发送滚轮事件
             _scroll_down(cx, cy, clicks=3)
-            time.sleep(0.4)   # 等页面渲染
+
+            # 等页面渲染（每 50ms 检查一次 ESC，最快 50ms 内响应）
+            if self._sleep_interruptible(0.4):
+                break
+
+            if self.stop_flag.is_set() or keyboard.is_pressed("esc"):
+                break
 
             shot = pyautogui.screenshot(region=(x, y, w, h))
+
+            if self.stop_flag.is_set() or keyboard.is_pressed("esc"):
+                break
 
             # 到底检测：连续 2 次与上张相同则停止
             if self._is_same(self.screenshots[-1], shot):
