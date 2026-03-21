@@ -172,13 +172,11 @@ class LongScreenshot:
 
         def click(e):
             nonlocal sx, sy
-            if not started[0]:
-                # 第一次点击：记录起点
-                sx, sy = e.x, e.y
-                started[0] = True
-            else:
-                # 第二次点击：确认选区（触摸板模式）
-                _confirm(e.x, e.y)
+            sx, sy = e.x, e.y
+            started[0] = True
+            if rect[0]:
+                canvas.delete(rect[0])
+                rect[0] = None
 
         def drag(e):
             if not started[0]:
