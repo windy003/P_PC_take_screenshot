@@ -41,7 +41,6 @@ def _get_output_dir() -> str:
         return d
     return str(Path.home() / "Desktop")
 
-import keyboard
 import pyautogui
 import numpy as np
 import cv2
@@ -96,11 +95,56 @@ class LongScreenshot:
         self.screenshots: list[Image.Image] = []
         self._dim_overlay: list[tk.Toplevel] | None = None
 
-        # 全局快捷键
-        keyboard.add_hotkey("ctrl+alt+print screen", self._on_long_hotkey,     suppress=True)
-        keyboard.add_hotkey("shift+print screen",    self._on_rect_hotkey,     suppress=True)
-        keyboard.add_hotkey("print screen",          self._on_fullscreen_hotkey, suppress=True)
+        # 全局快捷键：WH_KEYBOARD_LL 钩子只拦截 VK_SNAPSHOT，其他按键全部放行
         self._start_tray()
+        threading.Thread(target=self._hotkey_message_loop, daemon=True).start()
+
+    # ─────────────────────────── 全局热键常量 ────────────────────────
+    _WM_HOTKEY      = 0x0312
+    _VK_SNAPSHOT    = 0x2C   # Print Screen
+    _VK_ESCAPE      = 0x1B
+    _MOD_ALT        = 0x0001
+    _MOD_CTRL       = 0x0002
+    _MOD_SHIFT      = 0x0004
+    _MOD_NOREPEAT   = 0x4000
+    _ID_FULLSCREEN  = 1
+    _ID_RECT        = 2
+    _ID_LONG        = 3
+
+    def _is_esc_pressed(self) -> bool:
+        return bool(ctypes.windll.user32.GetAsyncKeyState(self._VK_ESCAPE) & 0x8000)
+
+    def _hotkey_message_loop(self):
+        """RegisterHotKey 方式注册全局热键，不影响单独 PrtSc 的原生行为"""
+        import ctypes.wintypes
+        u32 = ctypes.windll.user32
+
+        u32.RegisterHotKey(None, self._ID_FULLSCREEN,
+                           self._MOD_CTRL | self._MOD_NOREPEAT,
+                           self._VK_SNAPSHOT)
+        u32.RegisterHotKey(None, self._ID_RECT,
+                           self._MOD_SHIFT | self._MOD_NOREPEAT,
+                           self._VK_SNAPSHOT)
+        u32.RegisterHotKey(None, self._ID_LONG,
+                           self._MOD_CTRL | self._MOD_ALT | self._MOD_NOREPEAT,
+                           self._VK_SNAPSHOT)
+
+        msg = ctypes.wintypes.MSG()
+        while u32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+            if msg.message == self._WM_HOTKEY:
+                hid = msg.wParam
+                if hid == self._ID_FULLSCREEN:
+                    self._on_fullscreen_hotkey()
+                elif hid == self._ID_RECT:
+                    self._on_rect_hotkey()
+                elif hid == self._ID_LONG:
+                    self._on_long_hotkey()
+            u32.TranslateMessage(ctypes.byref(msg))
+            u32.DispatchMessageW(ctypes.byref(msg))
+
+        u32.UnregisterHotKey(None, self._ID_FULLSCREEN)
+        u32.UnregisterHotKey(None, self._ID_RECT)
+        u32.UnregisterHotKey(None, self._ID_LONG)
 
     # ─────────────────────────── 快捷键触发 ───────────────────────────
     def _on_long_hotkey(self):
@@ -221,12 +265,21 @@ class LongScreenshot:
         self._run_capture(region)
 
     # ─────────────────────────── 可中断睡眠 ──────────────────────────
+    def _should_stop(self) -> bool:
+        """统一停止判断：stop_flag 或 ESC 键"""
+        if self.stop_flag.is_set():
+            return True
+        if self._is_esc_pressed():
+            self.stop_flag.set()
+            return True
+        return False
+
     def _sleep_interruptible(self, seconds: float, interval: float = 0.05) -> bool:
-        """分段睡眠，每隔 interval 秒检查一次 ESC / stop_flag。
+        """分段睡眠，每隔 interval 秒检查一次停止条件。
         返回 True 表示被中断，False 表示正常睡完。"""
         elapsed = 0.0
         while elapsed < seconds:
-            if self.stop_flag.is_set() or keyboard.is_pressed("esc"):
+            if self._should_stop():
                 return True
             chunk = min(interval, seconds - elapsed)
             time.sleep(chunk)
@@ -256,24 +309,20 @@ class LongScreenshot:
         self.screenshots.append(pyautogui.screenshot(region=(x, y, w, h)))
 
         dup_count = 0
-        while not self.stop_flag.is_set():
-
-            if keyboard.is_pressed("esc"):
-                break
-
+        while not self._should_stop():
             # ★ 用 ctypes 直接发送滚轮事件
             _scroll_down(cx, cy, clicks=3)
 
-            # 等页面渲染（每 50ms 检查一次 ESC，最快 50ms 内响应）
+            # 等页面渲染（每 50ms 检查一次停止条件，最快 50ms 内响应）
             if self._sleep_interruptible(0.4):
                 break
 
-            if self.stop_flag.is_set() or keyboard.is_pressed("esc"):
+            if self._should_stop():
                 break
 
             shot = pyautogui.screenshot(region=(x, y, w, h))
 
-            if self.stop_flag.is_set() or keyboard.is_pressed("esc"):
+            if self._should_stop():
                 break
 
             # 到底检测：连续 2 次与上张相同则停止
@@ -415,7 +464,7 @@ class LongScreenshot:
     def _start_tray(self):
         menu = pystray.Menu(
             pystray.MenuItem(
-                "全屏截图  (PrtSc)",
+                "全屏截图  (Ctrl+PrtSc)",
                 lambda: threading.Thread(target=self._take_fullscreen, daemon=True).start(),
             ),
             pystray.MenuItem(
@@ -433,7 +482,6 @@ class LongScreenshot:
         threading.Thread(target=self.tray.run, daemon=True).start()
 
     def _quit(self):
-        keyboard.unhook_all()
         self.tray.stop()
         self.root.after(0, self.root.quit)
 
