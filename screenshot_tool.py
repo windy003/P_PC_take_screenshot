@@ -447,19 +447,6 @@ class LongScreenshot:
 
     def _start_tray(self):
         menu = pystray.Menu(
-            pystray.MenuItem(
-                "全屏截图  (Ctrl+PrtSc)",
-                lambda: threading.Thread(target=self._take_fullscreen, daemon=True).start(),
-            ),
-            pystray.MenuItem(
-                "矩形截图  (Shift+PrtSc)",
-                lambda: self.root.after(0, lambda: self._show_selection(self._take_rect_shot)),
-            ),
-            pystray.MenuItem(
-                "长截屏    (Ctrl+Alt+PrtSc)",
-                lambda: self.root.after(0, lambda: self._show_selection(self._start_long)),
-            ),
-            pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出 (&X)", self._quit),
         )
         self.tray = pystray.Icon("长截屏工具", self._make_icon(), "长截屏工具", menu)
