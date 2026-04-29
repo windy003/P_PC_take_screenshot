@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 import tkinter as tk
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw
 from dotenv import load_dotenv
 
 # 加载项目根目录的 .env
@@ -58,9 +58,6 @@ except Exception:
 pyautogui.FAILSAFE = False
 
 # ── 底层滚轮常量 ──────────────────────────────────────────────────
-MOUSEEVENTF_MOVE      = 0x0001
-MOUSEEVENTF_LEFTDOWN  = 0x0002
-MOUSEEVENTF_LEFTUP    = 0x0004
 MOUSEEVENTF_WHEEL     = 0x0800
 WHEEL_DELTA           = 120
 
@@ -68,14 +65,6 @@ WHEEL_DELTA           = 120
 def _move(x: int, y: int):
     ctypes.windll.user32.SetCursorPos(x, y)
 
-
-def _click(x: int, y: int):
-    """左键单击（让目标窗口获得焦点）"""
-    _move(x, y)
-    time.sleep(0.05)
-    ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-    time.sleep(0.03)
-    ctypes.windll.user32.mouse_event(MOUSEEVENTF_LEFTUP,   0, 0, 0, 0)
 
 
 def _scroll_down(x: int, y: int, clicks: int = 3):
@@ -95,7 +84,7 @@ class LongScreenshot:
         self.screenshots: list[Image.Image] = []
         self._dim_overlay: list[tk.Toplevel] | None = None
 
-        # 全局快捷键：WH_KEYBOARD_LL 钩子只拦截 VK_SNAPSHOT，其他按键全部放行
+        # 全局快捷键：RegisterHotKey 注册组合键，不拦截单独 PrtSc
         self._start_tray()
         threading.Thread(target=self._hotkey_message_loop, daemon=True).start()
 
