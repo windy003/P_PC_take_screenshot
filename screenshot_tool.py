@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 import tkinter as tk
-from PIL import Image, ImageDraw
+from PIL import Image
 from dotenv import load_dotenv
 
 # 加载项目根目录的 .env
@@ -442,13 +442,8 @@ class LongScreenshot:
 
     # ─────────────────────────── 系统托盘 ────────────────────────────
     def _make_icon(self) -> Image.Image:
-        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        d.rounded_rectangle([6, 18, 58, 54], radius=8, fill="#1565c0")
-        d.ellipse([18, 24, 46, 48], fill="white")
-        d.ellipse([24, 30, 40, 44], fill="#1565c0")
-        d.rounded_rectangle([30, 12, 46, 20], radius=3, fill="#1565c0")
-        return img
+        ico_path = Path(__file__).parent / "256x256.ico"
+        return Image.open(ico_path)
 
     def _start_tray(self):
         menu = pystray.Menu(
