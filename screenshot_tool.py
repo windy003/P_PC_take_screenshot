@@ -275,6 +275,32 @@ class LongScreenshot:
             elapsed += chunk
         return False
 
+    # ─────────────────────────── 稳定帧截图 ──────────────────────────
+    def _grab_stable(self, region: tuple[int, int, int, int],
+                     settle: float = 0.25, max_wait: float = 2.0,
+                     interval: float = 0.1) -> Image.Image:
+        """反复截图，直到画面连续两帧基本一致（重绘彻底完成）再返回。
+
+        这是远程桌面(RDP)下拼接不错位的关键：RDP 画面是分块异步刷新的，
+        固定等待时间可能截到"撕裂帧"（上半新、下半旧）。这里改为等画面
+        真正稳定下来，无论网络多慢都能拿到一帧干净完整的画面。
+        """
+        x, y, w, h = region
+        # 先给滚动动画一点启动时间（可被 ESC 中断）
+        self._sleep_interruptible(settle)
+        prev = np.asarray(pyautogui.screenshot(region=(x, y, w, h)))
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            if self._should_stop():
+                break
+            time.sleep(interval)
+            cur = np.asarray(pyautogui.screenshot(region=(x, y, w, h)))
+            # 整帧平均像素差足够小 = 画面已停止变化（容忍光标闪烁等微小噪声）
+            if np.abs(cur.astype(np.int16) - prev.astype(np.int16)).mean() < 0.5:
+                return Image.fromarray(cur)
+            prev = cur
+        return Image.fromarray(prev)
+
     # ─────────────────────────── 截图主循环 ──────────────────────────
     def _run_capture(self, region: tuple[int, int, int, int]):
         self.is_capturing = True
@@ -294,22 +320,16 @@ class LongScreenshot:
 
         _move(cx, cy)   # 只移光标，不点击，避免触摸板环境产生右键
 
-        # 首张截图
-        self.screenshots.append(pyautogui.screenshot(region=(x, y, w, h)))
+        # 首张截图（等画面稳定再截，避免撕裂帧）
+        self.screenshots.append(self._grab_stable((x, y, w, h)))
 
         dup_count = 0
         while not self._should_stop():
-            # ★ 用 ctypes 直接发送滚轮事件
-            _scroll_down(cx, cy, clicks=3)
+            # ★ 用 ctypes 直接发送滚轮事件（滚动幅度小，保证相邻帧大量重叠）
+            _scroll_down(cx, cy, clicks=1)
 
-            # 等页面渲染（每 50ms 检查一次停止条件，最快 50ms 内响应）
-            if self._sleep_interruptible(0.4):
-                break
-
-            if self._should_stop():
-                break
-
-            shot = pyautogui.screenshot(region=(x, y, w, h))
+            # 等画面彻底稳定再截图（RDP 下不错位的关键）
+            shot = self._grab_stable((x, y, w, h))
 
             if self._should_stop():
                 break
@@ -401,26 +421,21 @@ class LongScreenshot:
         result = arrays[0]
 
         for i in range(1, len(arrays)):
-            pg = cv2.cvtColor(arrays[i - 1], cv2.COLOR_RGB2GRAY)
-            cg = cv2.cvtColor(arrays[i],     cv2.COLOR_RGB2GRAY)
-            h = pg.shape[0]
-            # 用更大的模板（1/2 高度），提供更多上下文，减少误匹配
-            tpl_h = max(h // 2, 100)
-            template = pg[h - tpl_h:, :]
-            search = cg
+            prev_g = cv2.cvtColor(arrays[i - 1], cv2.COLOR_RGB2GRAY).astype(np.float64)
+            curr_g = cv2.cvtColor(arrays[i],     cv2.COLOR_RGB2GRAY).astype(np.float64)
+            h, w = prev_g.shape
 
-            if template.shape[1] != search.shape[1] or template.shape[0] >= search.shape[0]:
-                result = np.vstack([result, arrays[i]])
-                continue
+            # 相位相关：直接计算两帧之间的实际滚动像素数。
+            # 不受滚动量大小限制，对 RDP 压缩噪声天然鲁棒。
+            win = cv2.createHanningWindow((w, h), cv2.CV_64F)
+            (_, shift_y), _ = cv2.phaseCorrelate(prev_g, curr_g, win)
+            scroll_px = int(round(-shift_y))   # 负号：向下滚动时 shift_y 为负
 
-            res = cv2.matchTemplate(search, template, cv2.TM_CCOEFF_NORMED)
-            _, val, _, loc = cv2.minMaxLoc(res)
-
-            if val > 0.7:   # 提高阈值，避免在相似内容中误匹配
-                new_start = loc[1] + tpl_h
-                if 0 < new_start < arrays[i].shape[0]:
-                    result = np.vstack([result, arrays[i][new_start:]])
+            if 1 <= scroll_px < h:
+                # 当前帧前 (h - scroll_px) 行与上一帧重叠，只取新增部分
+                result = np.vstack([result, arrays[i][h - scroll_px:]])
             else:
+                # 滚动量异常（>=h 或 <=0）时整帧追加
                 result = np.vstack([result, arrays[i]])
 
         return Image.fromarray(result)
