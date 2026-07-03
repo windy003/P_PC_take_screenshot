@@ -1,1 +1,1 @@
-start /b pythonw ./screenshot_tool.py
+start /b "" "D:\files\using\Python\P_PC_take_screenshot\.venv\Scripts\pythonw.exe"  "D:\files\using\Python\P_PC_take_screenshot\screenshot_tool.py"
