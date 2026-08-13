@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -462,6 +463,7 @@ class LongScreenshot:
 
     def _start_tray(self):
         menu = pystray.Menu(
+            pystray.MenuItem("重启 (&R)", self._restart),
             pystray.MenuItem("退出 (&X)", self._quit),
         )
         self.tray = pystray.Icon("长截屏工具", self._make_icon(), "长截屏工具", menu)
@@ -470,6 +472,12 @@ class LongScreenshot:
     def _quit(self):
         self.tray.stop()
         self.root.after(0, self.root.quit)
+
+    def _restart(self):
+        """重启当前程序：结束托盘图标后用同样的解释器和参数重新拉起进程"""
+        self.tray.stop()
+        python = sys.executable
+        os.execv(python, [python] + sys.argv)
 
     def run(self):
         self.root.mainloop()
